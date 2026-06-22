@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTG Card Scanner</title>
+<style>
+  :root {
+    --bg:        #0e0e12;
+    --surface:   #17171f;
+    --surface2:  #1f1f2b;
+    --border:    #2e2e3e;
+    --gold:      #c9a84c;
+    --gold-dim:  #8a6e2f;
+    --text:      #e8e2d4;
+    --muted:     #7a7490;
+    --radius:    8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Georgia', serif;
+    min-height: 100vh;
+  }
+
+  header {
+    background: linear-gradient(180deg, #1a1208 0%, #0e0e12 100%);
+    border-bottom: 1px solid var(--gold-dim);
+    padding: 16px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-size: 22px;
+    font-weight: bold;
+    color: var(--gold);
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: opacity .15s, transform .1s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn:active { transform: scale(.97); }
+  .btn-gold    { background: var(--gold); color: #0e0e12; font-weight: bold; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-danger  { background: #5c1a1a; color: #f0c0c0; }
+  .btn-sm      { padding: 5px 11px; font-size: 12px; }
+
+  .app { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 57px); }
+
+  /* Scanner panel */
+  .scanner-panel {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .panel-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--gold);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+
+  /* OCR tip banner */
+  #ocr-banner {
+    background: #0e1a2b;
+    border: 1px solid #1a3a5c;
+    border-radius: var(--radius);
+    padding: 11px 13px;
+    font-size: 12px;
+    color: #7ab4e0;
+    line-height: 1.5;
+    display: none;
+  }
+
+  .tabs { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .tab { flex: 1; padding: 8px; background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 13px; font-family: inherit; }
+  .tab.active { background: var(--surface2); color: var(--gold); }
+
+  .cam-wrap {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+  }
+  #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #cam-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.6);
+    color: var(--muted);
+    font-size: 14px;
+    pointer-events: none;
+  }
+  /* Card name guide box */
+  .cam-guide-wrap {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .cam-guide-outer {
+    position: absolute;
+    inset: 6%;
+    border: 2px solid rgba(201,168,76,.35);
+    border-radius: 6px;
+  }
+  .cam-name-bar {
+    position: absolute;
+    left: 14%; right: 24%;
+    top: 9%; height: 8%;
+    border: 2px solid var(--gold);
+    border-radius: 3px;
+  }
+  .cam-label {
+    position: absolute;
+    left: 14%; top: 18%;
+    font-size: 10px;
+    color: var(--gold);
+    opacity: .8;
+  }
+
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  #drop-zone:hover, #drop-zone.drag-over { border-color: var(--gold); color: var(--gold); }
+  #drop-zone input { display: none; }
+  #preview-img { width: 100%; border-radius: var(--radius); display: none; margin-top: 10px; }
+
+  .input-row { display: flex; gap: 8px; }
+  .input-row input {
+    flex: 1; padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .input-row input:focus { outline: none; border-color: var(--gold-dim); }
+
+  #result-toast {
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    font-size: 14px;
+    display: none;
+    line-height: 1.5;
+  }
+  #result-toast.success { background: #0e2b1a; border: 1px solid #1d6b3a; color: #7dd9a3; }
+  #result-toast.error   { background: #2b0e0e; border: 1px solid #6b1d1d; color: #f09090; }
+
+  /* Collection */
+  .collection-panel { padding: 20px; overflow-y: auto; }
+  .collection-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+  }
+  .collection-title { font-size: 18px; color: var(--gold); }
+  .stats { font-size: 13px; color: var(--muted); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .controls select {
+    padding: 7px 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+
+  #card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .card-tile {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; position: relative;
+    transition: border-color .15s, transform .15s;
+  }
+  .card-tile:hover { border-color: var(--gold-dim); transform: translateY(-2px); }
+
+  .card-img-wrap { background: #111; aspect-ratio: 63/88; position: relative; }
+  .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .card-img-placeholder {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 28px;
+  }
+  .qty-badge {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(0,0,0,.75); color: var(--gold);
+    font-size: 12px; padding: 2px 7px; border-radius: 12px; font-weight: bold;
+  }
+  .color-dot {
+    position: absolute; bottom: 6px; left: 6px;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.2);
+  }
+  .card-info { padding: 10px 10px 8px; border-top: 1px solid var(--border); }
+  .card-name { font-size: 13px; font-weight: bold; color: var(--text); line-height: 1.3; margin-bottom: 3px; }
+  .card-meta { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .card-mana { font-size: 12px; color: var(--gold); margin-top: 2px; }
+  .card-actions { display: flex; padding: 0 8px 8px; gap: 6px; }
+
+  .empty-state { grid-column: 1/-1; text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border); border-top-color: var(--gold);
+    border-radius: 50%; animation: spin .7s linear infinite;
+    display: inline-block; vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🃏 MTG Card Scanner</div>
+  <div style="display:flex;gap:10px">
+    <span id="ocr-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
+    <button class="btn btn-outline" onclick="exportCSV()">⬇ Export CSV</button>
+  </div>
+</header>
+
+<div class="app">
+
+  <aside class="scanner-panel">
+    <div class="panel-title">📷 Scan a Card</div>
+
+    <div id="ocr-banner">
+      💡 <strong>Tip:</strong> Hold the card still with the name clearly visible and well-lit. If OCR misreads it, use the <strong>Manual</strong> tab to type the name directly — Scryfall's fuzzy search handles typos well.
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('webcam')">Webcam</button>
+      <button class="tab" onclick="switchTab('upload')">Upload</button>
+      <button class="tab" onclick="switchTab('manual')">Manual</button>
+    </div>
+
+    <!-- Webcam -->
+    <div id="tab-webcam">
+      <div class="cam-wrap">
+        <video id="video" autoplay playsinline></video>
+        <div id="cam-overlay">Click "Start Camera" below</div>
+        <div class="cam-guide-wrap">
+          <div class="cam-guide-outer"></div>
+          <div class="cam-name-bar"></div>
+          <div class="cam-label">card name</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-outline" style="flex:1" id="cam-btn" onclick="toggleCamera()">Start Camera</button>
+        <button class="btn btn-gold" style="flex:1" onclick="captureAndScan()">Scan Card</button>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div id="tab-upload" style="display:none">
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleDrop(event)">
+        <input type="file" id="file-input" accept="image/*" onchange="handleFile(this.files[0])">
+        <div style="font-size:28px;margin-bottom:8px">🖼</div>
+        Drop a card photo here or click to browse
+      </div>
+      <img id="preview-img" alt="Card preview">
+      <button class="btn btn-gold" style="width:100%;margin-top:10px" onclick="scanUpload()">Scan Card</button>
+    </div>
+
+    <!-- Manual -->
+    <div id="tab-manual" style="display:none">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:10px">
+        Type the card name — Scryfall's fuzzy search handles partial names and typos.
+      </p>
+      <div class="input-row">
+        <input type="text" id="manual-input" placeholder="e.g. Lightning Bolt"
+               onkeydown="if(event.key==='Enter') scanManual()">
+        <button class="btn btn-gold" onclick="scanManual()">Add</button>
+      </div>
+    </div>
+
+    <div id="result-toast"></div>
+  </aside>
+
+  <main class="collection-panel">
+    <div class="collection-header">
+      <div>
+        <div class="collection-title">My Collection</div>
+        <div class="stats" id="stats">Loading…</div>
+      </div>
+      <div class="controls">
+        <select onchange="loadCollection()" id="sort-select">
+          <option value="name">Sort: Name</option>
+          <option value="cmc">Sort: Mana Value</option>
+          <option value="colors">Sort: Color</option>
+          <option value="rarity">Sort: Rarity</option>
+          <option value="added_at">Sort: Date Added</option>
+          <option value="quantity">Sort: Quantity</option>
+        </select>
+        <select onchange="loadCollection()" id="color-select">
+          <option value="">All Colors</option>
+          <option value="White">White ☀️</option>
+          <option value="Blue">Blue 💧</option>
+          <option value="Black">Black 💀</option>
+          <option value="Red">Red 🔥</option>
+          <option value="Green">Green 🌿</option>
+          <option value="Colorless">Colorless ⬡</option>
+        </select>
+      </div>
+    </div>
+    <div id="card-grid"></div>
+  </main>
+</div>
+
+<script>
+let stream = null, cameraOn = false, uploadedFile = null;
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const cfg = await fetch('/api/config').then(r => r.json());
+  const statusEl = document.getElementById('ocr-status');
+  if (cfg.ocr_available) {
+    statusEl.textContent = '✔ OCR ready';
+    statusEl.style.color = '#7dd9a3';
+    document.getElementById('ocr-banner').style.display = 'block';
+  } else {
+    statusEl.textContent = '⚠ OCR not installed';
+    statusEl.style.color = '#f09090';
+    toast('error', '⚠ Tesseract OCR is not installed. See README.txt for setup instructions, or use the <strong>Manual</strong> tab to add cards by name for now.');
+    document.getElementById('result-toast').style.display = 'block';
+  }
+  loadCollection();
+});
+
+function switchTab(name) {
+  ['webcam','upload','manual'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t === name ? '' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', ['webcam','upload','manual'][i] === name);
+  });
+  if (name !== 'webcam' && stream) stopCamera();
+}
+
+async function toggleCamera() {
+  if (cameraOn) { stopCamera(); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    document.getElementById('video').srcObject = stream;
+    document.getElementById('cam-overlay').style.display = 'none';
+    document.getElementById('cam-btn').textContent = 'Stop Camera';
+    cameraOn = true;
+  } catch {
+    toast('error', 'Camera access denied. Check browser permissions.');
+  }
+}
+function stopCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; cameraOn = false;
+  document.getElementById('cam-overlay').style.display = 'flex';
+  document.getElementById('cam-btn').textContent = 'Start Camera';
+}
+
+function captureAndScan() {
+  if (!cameraOn) { toast('error', 'Start the camera first.'); return; }
+  const video = document.getElementById('video');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  scanImage(canvas.toDataURL('image/jpeg', 0.92).split(',')[1], 'image/jpeg');
+}
+
+function handleFile(file) {
+  if (!file) return;
+  uploadedFile = file;
+  const img = document.getElementById('preview-img');
+  img.src = URL.createObjectURL(file);
+  img.style.display = 'block';
+  document.getElementById('drop-zone').style.display = 'none';
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+}
+function scanUpload() {
+  if (!uploadedFile) { toast('error', 'Drop or choose an image first.'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const [header, b64] = ev.target.result.split(',');
+    scanImage(b64, header.match(/data:([^;]+)/)?.[1] || 'image/jpeg');
+  };
+  reader.readAsDataURL(uploadedFile);
+}
+
+async function scanManual() {
+  const name = document.getElementById('manual-input').value.trim();
+  if (!name) return;
+  doScan({ manual_name: name });
+}
+
+function scanImage(b64, mediaType) {
+  doScan({ image: b64, media_type: mediaType });
+}
+
+async function doScan(payload) {
+  toast('loading', '<span class="spinner"></span> Reading card…');
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) { toast('error', '⚠ ' + (data.error || 'Unknown error')); return; }
+    const c = data.card;
+    const ocrNote = data.ocr_read ? `<span style="font-size:11px;opacity:.7"> (read as "${data.ocr_read}")</span>` : '';
+    const qty = c.quantity > 1 ? ` (now ×${c.quantity})` : ' added!';
+    toast('success', `✔ <strong>${c.name}</strong>${qty}${ocrNote}<br><span style="font-size:12px;opacity:.8">${c.type_line || ''} · ${c.set_name || ''}</span>`);
+    loadCollection();
+  } catch (e) {
+    toast('error', '⚠ Network error: ' + e.message);
+  }
+}
+
+async function loadCollection() {
+  const sort  = document.getElementById('sort-select').value;
+  const color = document.getElementById('color-select').value;
+  const cards = await fetch(`/api/collection?sort=${sort}&color=${encodeURIComponent(color)}`).then(r => r.json());
+  renderGrid(cards);
+}
+
+function colorHex(c) {
+  if (!c || c === 'Colorless') return '#555';
+  if (c.includes(',')) return '#8b6914';
+  if (c.includes('White'))  return '#d4c98a';
+  if (c.includes('Blue'))   return '#4a7fc1';
+  if (c.includes('Black'))  return '#8a5a9c';
+  if (c.includes('Red'))    return '#c1502a';
+  if (c.includes('Green'))  return '#3a8a3a';
+  return '#555';
+}
+
+function renderGrid(cards) {
+  const grid = document.getElementById('card-grid');
+  const total = cards.reduce((s, c) => s + c.quantity, 0);
+  document.getElementById('stats').textContent = `${cards.length} unique · ${total} total`;
+  if (!cards.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🔮</div><div>No cards yet — scan your first card!</div></div>`;
+    return;
+  }
+  grid.innerHTML = cards.map(c => `
+    <div class="card-tile">
+      <div class="card-img-wrap">
+        ${c.image_url ? `<img src="${c.image_url}" alt="${c.name}" loading="lazy">` : `<div class="card-img-placeholder">🃏</div>`}
+        ${c.quantity > 1 ? `<div class="qty-badge">×${c.quantity}</div>` : ''}
+        <div class="color-dot" style="background:${colorHex(c.color_identity)}"></div>
+      </div>
+      <div class="card-info">
+        <div class="card-name">${c.name}</div>
+        <div class="card-meta">${c.rarity || ''} · ${c.set_name || ''}</div>
+        <div class="card-mana">${c.mana_cost || ''}</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-danger btn-sm" style="flex:1" onclick="deleteCard(${c.id})">Remove</button>
+      </div>
+    </div>`).join('');
+}
+
+async function deleteCard(id) {
+  if (!confirm('Remove this card from your collection?')) return;
+  await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id}) });
+  loadCollection();
+}
+
+function exportCSV() {
+  const a = document.createElement('a');
+  a.href = '/api/export'; a.download = 'mtg_collection.csv'; a.click();
+}
+
+function toast(type, html) {
+  const el = document.getElementById('result-toast');
+  el.className = 'result-toast ' + (type === 'loading' ? '' : type);
+  el.innerHTML = html;
+  el.style.display = 'block';
+  if (type === 'loading') {
+    el.style.background = 'var(--surface2)';
+    el.style.border = '1px solid var(--border)';
+    el.style.color = 'var(--muted)';
+  }
+}
+</script>
+</body>
+</html>
