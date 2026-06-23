@@ -224,6 +224,53 @@
   .empty-state { grid-column: 1/-1; text-align: center; padding: 60px 20px; color: var(--muted); }
   .empty-icon { font-size: 48px; margin-bottom: 12px; }
 
+  .qty-controls {
+    display: flex; align-items: center; gap: 6px; flex: 1;
+  }
+  .qty-controls button {
+    width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 16px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    line-height: 1; padding: 0;
+  }
+  .qty-controls button:hover { border-color: var(--gold); color: var(--gold); }
+  .qty-num { font-size: 13px; color: var(--text); min-width: 20px; text-align: center; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.75);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px;
+  }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; width: 100%; max-width: 520px;
+    max-height: 80vh; display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-title { font-size: 16px; color: var(--gold); }
+  .modal-close {
+    background: none; border: none; color: var(--muted);
+    font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .printing-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .printing-row:hover { border-color: var(--gold); background: var(--surface2); }
+  .printing-row.active { border-color: var(--gold); background: #1a1408; }
+  .printing-img { width: 36px; height: 50px; object-fit: cover; border-radius: 4px; background: #111; flex-shrink: 0; }
+  .printing-info { flex: 1; min-width: 0; }
+  .printing-name { font-size: 13px; font-weight: bold; color: var(--text); }
+  .printing-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .printing-check { color: var(--gold); font-size: 18px; flex-shrink: 0; }
+
   .spinner {
     width: 18px; height: 18px;
     border: 2px solid var(--border); border-top-color: var(--gold);
@@ -334,6 +381,20 @@
   </main>
 </div>
 
+<!-- Set picker modal -->
+<div id="modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Choose a Printing</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <div style="color:var(--muted);text-align:center;padding:20px">Loading printings…</div>
+    </div>
+  </div>
+</div>
+
+
 <script>
 let stream = null, cameraOn = false, uploadedFile = null;
 
@@ -439,6 +500,10 @@ async function doScan(payload) {
     const qty = c.quantity > 1 ? ` (now ×${c.quantity})` : ' added!';
     toast('success', `✔ <strong>${c.name}</strong>${qty}${ocrNote}<br><span style="font-size:12px;opacity:.8">${c.type_line || ''} · ${c.set_name || ''}</span>`);
     loadCollection();
+    uploadedFile = null;
+    document.getElementById('preview-img').style.display = 'none';
+    document.getElementById('drop-zone').style.display = '';
+    document.getElementById('file-input').value = '';
   } catch (e) {
     toast('error', '⚠ Network error: ' + e.message);
   }
@@ -467,14 +532,14 @@ function renderGrid(cards) {
   const total = cards.reduce((s, c) => s + c.quantity, 0);
   document.getElementById('stats').textContent = `${cards.length} unique · ${total} total`;
   if (!cards.length) {
-    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🔮</div><div>No cards yet — scan your first card!</div></div>`;
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🔮</div><div>No cards yet - scan your first card!</div></div>`;
     return;
   }
   grid.innerHTML = cards.map(c => `
     <div class="card-tile">
       <div class="card-img-wrap">
         ${c.image_url ? `<img src="${c.image_url}" alt="${c.name}" loading="lazy">` : `<div class="card-img-placeholder">🃏</div>`}
-        ${c.quantity > 1 ? `<div class="qty-badge">×${c.quantity}</div>` : ''}
+        <div class="qty-badge">×${c.quantity}</div>
         <div class="color-dot" style="background:${colorHex(c.color_identity)}"></div>
       </div>
       <div class="card-info">
@@ -482,8 +547,16 @@ function renderGrid(cards) {
         <div class="card-meta">${c.rarity || ''} · ${c.set_name || ''}</div>
         <div class="card-mana">${c.mana_cost || ''}</div>
       </div>
-      <div class="card-actions">
-        <button class="btn btn-danger btn-sm" style="flex:1" onclick="deleteCard(${c.id})">Remove</button>
+      <div class="card-actions" style="flex-direction:column;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <div class="qty-controls">
+            <button onclick="changeQty(${c.id}, -1)">−</button>
+            <span class="qty-num">${c.quantity}</span>
+            <button onclick="changeQty(${c.id}, 1)">+</button>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="deleteCard(${c.id})">✕</button>
+        </div>
+        <button class="btn btn-outline btn-sm" style="width:100%" onclick="openPrintings(${c.id}, '${c.name.replace(/'/g,"\\'")}', '${c.scryfall_id}')">Change Set</button>
       </div>
     </div>`).join('');
 }
@@ -494,6 +567,76 @@ async function deleteCard(id) {
   loadCollection();
 }
 
+async function changeQty(id, delta) {
+  await fetch('/api/quantity', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id, delta })
+  });
+  loadCollection();
+}
+
+let currentPrintingCardId = null;
+
+async function openPrintings(id, name, currentScryfallId) {
+  currentPrintingCardId = id;
+  window._printings = [];
+  document.getElementById('modal-title').textContent = 'Choose a Printing — ' + name;
+  document.getElementById('modal-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">Loading printings…</div>';
+  document.getElementById('modal').style.display = 'flex';
+
+  try {
+    const resp = await fetch('/api/printings?name=' + encodeURIComponent(name));
+    const printings = await resp.json();
+    window._printings = printings;
+
+    if (!printings.length) {
+      document.getElementById('modal-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No printings found.</div>';
+      return;
+    }
+
+    let html = '';
+    for (let i = 0; i < printings.length; i++) {
+      const p = printings[i];
+      const isActive = p.id === currentScryfallId;
+      const imgUrl = p.image_uris && p.image_uris.small ? p.image_uris.small : '';
+      html += '<div class="printing-row ' + (isActive ? 'active' : '') + '" onclick="selectPrinting(' + i + ')">';
+      html += imgUrl ? '<img class="printing-img" src="' + imgUrl + '">' : '<div class="printing-img"></div>';
+      html += '<div class="printing-info">';
+      html += '<div class="printing-name">' + p.set_name + '</div>';
+      html += '<div class="printing-meta">' + p.rarity + ' · ' + (p.released_at || '') + (p.collector_number ? ' · #' + p.collector_number : '') + '</div>';
+      html += '</div>';
+      html += isActive ? '<div class="printing-check">✔</div>' : '';
+      html += '</div>';
+    }
+    document.getElementById('modal-body').innerHTML = html;
+
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div style="color:#f09090;text-align:center;padding:20px">Error loading printings: ' + e.message + '</div>';
+  }
+}
+
+async function selectPrinting(idx) {
+  const printing = window._printings[idx];
+  if (!printing) return;
+  document.getElementById('modal-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">Switching printing…</div>';
+  try {
+    await fetch('/api/switch-printing', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id: currentPrintingCardId, printing: printing })
+    });
+    closeModal();
+    loadCollection();
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div style="color:#f09090;text-align:center;padding:20px">Error: ' + e.message + '</div>';
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal').style.display = 'none';
+  currentPrintingCardId = null;
+  window._printings = [];
+}
 function exportCSV() {
   const a = document.createElement('a');
   a.href = '/api/export'; a.download = 'mtg_collection.csv'; a.click();
